@@ -9,7 +9,7 @@ import pino from 'pino';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { mkdir } from 'node:fs/promises';
-import { config } from './config.js';
+import config from './config.js';
 import { handleMessage } from './handler.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'silent' });
@@ -30,6 +30,57 @@ async function requestPhoneNumber() {
     return normalizePhoneNumber(answer);
   } finally {
     rl.close();
+  }
+}
+
+/**
+ * Download image from URL and return as Buffer
+ */
+async function downloadImageBuffer(imageUrl) {
+  if (!imageUrl) return null;
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    const buffer = await response.arrayBuffer();
+    return Buffer.from(buffer);
+  } catch (error) {
+    console.error(`⚠️ Error downloading image from ${imageUrl}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Update bot profile picture after successful connection
+ */
+async function updateBotProfilePicture(sock) {
+  if (!config.botImageUrl) {
+    return; // No image URL configured, skip silently
+  }
+
+  try {
+    // Get bot's own JID from authenticated credentials
+    const botJid = sock.user?.id;
+    if (!botJid) {
+      console.warn('⚠️ Bot JID not available, skipping profile picture update.');
+      return;
+    }
+
+    // Download image
+    const imageBuffer = await downloadImageBuffer(config.botImageUrl);
+    if (!imageBuffer) {
+      console.warn('⚠️ Could not download profile picture image.');
+      return;
+    }
+
+    // Update profile picture using Baileys API
+    await sock.updateProfilePicture(botJid, imageBuffer);
+    console.log('✅ Bot profile picture updated successfully.');
+  } catch (error) {
+    console.error('⚠️ Error updating bot profile picture:', error.message);
+    // Don't crash the bot if profile update fails
   }
 }
 
@@ -67,6 +118,15 @@ export async function createConnection() {
   sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
     if (connection === 'open') {
       console.log(`✅ ${config.botName} connected.`);
+      
+      // Update profile picture on successful connection
+      try {
+        await updateBotProfilePicture(sock);
+      } catch (error) {
+        console.error('Profile picture update error:', error.message);
+        // Continue even if profile update fails
+      }
+      
       return;
     }
 
