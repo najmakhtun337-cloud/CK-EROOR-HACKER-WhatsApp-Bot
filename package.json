@@ -1,0 +1,26 @@
+{
+  "name": "ck-eroor-hacker-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Professional WhatsApp Bot - CK-EROOR HACKER",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "baileys"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "dotenv": "^16.3.1",
+    "pino": "^8.16.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
