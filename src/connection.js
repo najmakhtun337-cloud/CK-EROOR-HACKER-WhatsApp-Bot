@@ -112,7 +112,6 @@ export async function createConnection() {
   });
 
   let hasConnected = false;
-  let pairingRequested = false;
 
   sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
     if (connection === 'open') {
@@ -145,23 +144,6 @@ export async function createConnection() {
     }
   });
 
-  // Wait for socket to be ready before requesting pairing code
-  // Use a promise that resolves when socket is ready
-  const socketReady = new Promise((resolve) => {
-    const checkReady = setInterval(() => {
-      if (sock.user?.id) {
-        clearInterval(checkReady);
-        resolve();
-      }
-    }, 100);
-
-    // Safety timeout: if socket doesn't become ready in 10 seconds, continue anyway
-    setTimeout(() => {
-      clearInterval(checkReady);
-      resolve();
-    }, 10000);
-  });
-
   // Handle pairing for unregistered connections
   if (!state.creds.registered) {
     const phoneNumber = await requestPhoneNumber();
@@ -174,18 +156,17 @@ export async function createConnection() {
     console.log('→ Link a device');
     console.log('→ Link with phone number\n');
 
-    // Wait for socket to be ready
-    await socketReady;
-
-    try {
-      const pairingCode = await sock.requestPairingCode(phoneNumber);
-      pairingRequested = true;
-      console.log(`🔐 Pairing code: ${pairingCode}`);
-      console.log('Enter this code in WhatsApp to link the bot.\n');
-    } catch (error) {
-      console.error('Error requesting pairing code:', error.message);
-      throw error;
-    }
+    // Request pairing code asynchronously without awaiting
+    // This allows the socket to stay alive during pairing
+    (async () => {
+      try {
+        const pairingCode = await sock.requestPairingCode(phoneNumber);
+        console.log(`🔐 Pairing code: ${pairingCode}`);
+        console.log('Enter this code in WhatsApp to link the bot.\n');
+      } catch (error) {
+        console.error('⚠️ Error requesting pairing code:', error.message);
+      }
+    })();
   }
 
   return sock;
