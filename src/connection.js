@@ -57,30 +57,26 @@ async function downloadImageBuffer(imageUrl) {
  */
 async function updateBotProfilePicture(sock) {
   if (!config.botImageUrl) {
-    return; // No image URL configured, skip silently
+    return;
   }
 
   try {
-    // Get bot's own JID from authenticated credentials
     const botJid = sock.user?.id;
     if (!botJid) {
       console.warn('⚠️ Bot JID not available, skipping profile picture update.');
       return;
     }
 
-    // Download image
     const imageBuffer = await downloadImageBuffer(config.botImageUrl);
     if (!imageBuffer) {
       console.warn('⚠️ Could not download profile picture image.');
       return;
     }
 
-    // Update profile picture using Baileys API
     await sock.updateProfilePicture(botJid, imageBuffer);
     console.log('✅ Bot profile picture updated successfully.');
   } catch (error) {
     console.error('⚠️ Error updating bot profile picture:', error.message);
-    // Don't crash the bot if profile update fails
   }
 }
 
@@ -115,33 +111,58 @@ export async function createConnection() {
     }
   });
 
+  let hasConnected = false;
+  let pairingRequested = false;
+
   sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
     if (connection === 'open') {
+      hasConnected = true;
       console.log(`✅ ${config.botName} connected.`);
       
-      // Update profile picture on successful connection
       try {
         await updateBotProfilePicture(sock);
       } catch (error) {
         console.error('Profile picture update error:', error.message);
-        // Continue even if profile update fails
       }
-      
       return;
     }
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
+
       if (loggedOut) {
         console.error('❌ WhatsApp session logged out. Remove auth_info/ and pair again.');
-        return;
+        process.exit(1);
       }
-      console.log('⚠️ Connection interrupted; reconnecting...');
-      setTimeout(() => createConnection().catch(err => console.error('Reconnect error:', err.message)), 3000);
+
+      // Only reconnect if we've successfully connected at least once
+      // Don't reconnect during initial pairing phase
+      if (hasConnected) {
+        console.log('⚠️ Connection interrupted; reconnecting...');
+        setTimeout(() => createConnection().catch(err => console.error('Reconnect error:', err.message)), 3000);
+      }
     }
   });
 
+  // Wait for socket to be ready before requesting pairing code
+  // Use a promise that resolves when socket is ready
+  const socketReady = new Promise((resolve) => {
+    const checkReady = setInterval(() => {
+      if (sock.user?.id) {
+        clearInterval(checkReady);
+        resolve();
+      }
+    }, 100);
+
+    // Safety timeout: if socket doesn't become ready in 10 seconds, continue anyway
+    setTimeout(() => {
+      clearInterval(checkReady);
+      resolve();
+    }, 10000);
+  });
+
+  // Handle pairing for unregistered connections
   if (!state.creds.registered) {
     const phoneNumber = await requestPhoneNumber();
     if (!phoneNumber) {
@@ -153,9 +174,18 @@ export async function createConnection() {
     console.log('→ Link a device');
     console.log('→ Link with phone number\n');
 
-    const pairingCode = await sock.requestPairingCode(phoneNumber);
-    console.log(`🔐 Pairing code: ${pairingCode}`);
-    console.log('Enter this code in WhatsApp to link the bot.\n');
+    // Wait for socket to be ready
+    await socketReady;
+
+    try {
+      const pairingCode = await sock.requestPairingCode(phoneNumber);
+      pairingRequested = true;
+      console.log(`🔐 Pairing code: ${pairingCode}`);
+      console.log('Enter this code in WhatsApp to link the bot.\n');
+    } catch (error) {
+      console.error('Error requesting pairing code:', error.message);
+      throw error;
+    }
   }
 
   return sock;
